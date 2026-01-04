@@ -8,7 +8,8 @@ const pdfjs = (pdfjsLib as any).default || pdfjsLib;
 
 // Configure worker for PDF.js v4.x
 // IMPORTANT: The worker version must match the installed 'pdfjs-dist' version (4.8.69)
-if (pdfjs.GlobalWorkerOptions) {
+// We set this immediately to ensure it's ready before any operation
+if (typeof window !== 'undefined' && pdfjs.GlobalWorkerOptions) {
   pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.mjs`;
 }
 
@@ -57,49 +58,77 @@ export const rotatePdf = async (file: File, rotation: number): Promise<Uint8Arra
 };
 
 export const extractTextFromPdf = async (file: File, pageNumbers?: number[]): Promise<string> => {
-  const arrayBuffer = await file.arrayBuffer();
-  // Using Uint8Array is standard for pdfjs to avoid potential issues
-  const loadingTask = pdfjs.getDocument({ data: new Uint8Array(arrayBuffer) });
-  const pdf = await loadingTask.promise;
-  
-  let fullText = '';
-  
-  // Determine which pages to process
-  let pagesToProcess: number[] = [];
-  if (pageNumbers && pageNumbers.length > 0) {
-      // Filter pages to be within valid range (1 to totalPages)
-      pagesToProcess = pageNumbers.filter(p => p >= 1 && p <= pdf.numPages);
-  } else {
-      // If no pages specified, fallback to all
-      for (let i = 1; i <= pdf.numPages; i++) pagesToProcess.push(i);
-  }
+  // Debug log to ensure worker is set
+  console.log(`PDF.js Version: ${pdfjs.version}, Worker Src: ${pdfjs.GlobalWorkerOptions.workerSrc}`);
 
-  // Process selected pages sequentially
-  for (const i of pagesToProcess) {
-    try {
-      const page = await pdf.getPage(i);
-      const textContent = await page.getTextContent();
-      
-      const pageText = textContent.items
-        .map((item: any) => item.str)
-        .join(' ');
-      
-      fullText += `--- صفحه ${i} ---\n${pageText}\n\n`;
-      
-      // Critical: Release page resources immediately after processing
-      page.cleanup();
-    } catch (e) {
-      console.error(`Error processing page ${i}:`, e);
-      fullText += `--- صفحه ${i} (خطا در پردازش) ---\n\n`;
-    }
-  }
+  const arrayBuffer = await file.arrayBuffer();
   
-  // Clean up the document
-  if (pdf.destroy) {
-      pdf.destroy();
+  // Create a copy of the array buffer to prevent detachment issues
+  const data = new Uint8Array(arrayBuffer.slice(0));
+
+  try {
+      const loadingTask = pdfjs.getDocument({ 
+          data,
+          // Disable range requests to force full download/loading which is safer for local files
+          disableRange: true, 
+          disableStream: true
+      });
+      
+      const pdf = await loadingTask.promise;
+      
+      let fullText = '';
+      
+      // Determine which pages to process
+      let pagesToProcess: number[] = [];
+      if (pageNumbers && pageNumbers.length > 0) {
+          // Filter pages to be within valid range (1 to totalPages)
+          pagesToProcess = pageNumbers.filter(p => p >= 1 && p <= pdf.numPages);
+      } else {
+          // If no pages specified, fallback to all
+          for (let i = 1; i <= pdf.numPages; i++) pagesToProcess.push(i);
+      }
+
+      // Process selected pages sequentially
+      for (const i of pagesToProcess) {
+        try {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          
+          const pageText = textContent.items
+            .map((item: any) => item.str)
+            .join(' ');
+          
+          if (pageText.trim().length === 0) {
+              fullText += `--- صفحه ${i} (متنی یافت نشد - شاید اسکن شده باشد) ---\n\n`;
+          } else {
+              fullText += `--- صفحه ${i} ---\n${pageText}\n\n`;
+          }
+          
+          // Critical: Release page resources immediately after processing
+          page.cleanup();
+        } catch (e) {
+          console.error(`Error processing page ${i}:`, e);
+          fullText += `--- صفحه ${i} (خطا در پردازش) ---\n\n`;
+        }
+      }
+      
+      // Clean up the document
+      if (pdf.destroy) {
+          pdf.destroy();
+      }
+      
+      return fullText;
+
+  } catch (error: any) {
+      console.error("PDF Extraction Error:", error);
+      if (error.name === 'MissingPDFException') {
+          throw new Error("فایل PDF نامعتبر است یا دارای هدر صحیح نیست.");
+      }
+      if (error.message && error.message.includes('No PDF header found')) {
+          throw new Error("فایل انتخاب شده فرمت PDF معتبر ندارد.");
+      }
+      throw error;
   }
-  
-  return fullText;
 };
 
 export const addWatermark = async (file: File, text: string): Promise<Uint8Array> => {
@@ -162,7 +191,14 @@ export const imagesToPdf = async (files: File[]): Promise<Uint8Array> => {
 
 export const pdfToImages = async (file: File): Promise<Uint8Array> => {
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
+  // Create a copy of the array buffer
+  const data = new Uint8Array(arrayBuffer.slice(0));
+  
+  const loadingTask = pdfjs.getDocument({ 
+      data,
+      disableRange: true,
+      disableStream: true
+  });
   const pdf = await loadingTask.promise;
   const zip = new JSZip();
 
