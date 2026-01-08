@@ -15,7 +15,7 @@ if (typeof window !== 'undefined' && pdfjs.GlobalWorkerOptions) {
 
 // Helper to load font
 const loadVazirFont = async () => {
-  const response = await fetch('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Bold.ttf');
+  const response = await fetch('https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/fonts/ttf/Vazirmatn-Regular.ttf');
   if (!response.ok) throw new Error('Failed to load font');
   return response.arrayBuffer();
 };
@@ -274,3 +274,82 @@ export const getPageCount = async (file: File): Promise<number> => {
     const pdf = await PDFDocument.load(arrayBuffer);
     return pdf.getPageCount();
 }
+
+export const textToPdf = async (text: string): Promise<Uint8Array> => {
+  const doc = await PDFDocument.create();
+  
+  // Register fontkit
+  doc.registerFontkit((fontkit as any).default || fontkit);
+  
+  const fontBytes = await loadVazirFont();
+  const font = await doc.embedFont(fontBytes);
+  
+  const fontSize = 12;
+  const lineHeight = 20;
+  const margin = 50;
+
+  // Initial Page
+  let page = doc.addPage();
+  const { width, height } = page.getSize();
+  let y = height - margin;
+  const maxWidth = width - (margin * 2);
+
+  // Split text by newlines to preserve paragraphs
+  const paragraphs = text.split('\n');
+
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) {
+       y -= lineHeight; // Empty line
+       continue;
+    }
+
+    // Detect direction: Check for Persian/Arabic characters
+    // Using a regex for common Persian/Arabic ranges
+    const isRtl = /[\u0600-\u06FF\uFB8A\u067E\u0686\u06AF]/.test(paragraph);
+
+    // Simple word wrapping logic
+    const words = paragraph.split(' ');
+    let currentLine = '';
+
+    for (let i = 0; i < words.length; i++) {
+        const word = words[i];
+        const testLine = currentLine ? currentLine + ' ' + word : word;
+        const textWidth = font.widthOfTextAtSize(testLine, fontSize);
+        
+        if (textWidth > maxWidth && currentLine !== '') {
+            // Draw current line
+            if (y < margin + lineHeight) { 
+                page = doc.addPage(); 
+                y = height - margin; 
+            }
+            
+            const lineWidth = font.widthOfTextAtSize(currentLine, fontSize);
+            // Align Right if RTL, Left if LTR
+            const x = isRtl ? width - margin - lineWidth : margin;
+            
+            page.drawText(currentLine, { x, y, size: fontSize, font, color: rgb(0,0,0) });
+            y -= lineHeight;
+            currentLine = word;
+        } else {
+            currentLine = testLine;
+        }
+    }
+
+    // Draw the last line of the paragraph
+    if (currentLine) {
+        if (y < margin + lineHeight) { 
+            page = doc.addPage(); 
+            y = height - margin; 
+        }
+        const lineWidth = font.widthOfTextAtSize(currentLine, fontSize);
+        const x = isRtl ? width - margin - lineWidth : margin;
+        page.drawText(currentLine, { x, y, size: fontSize, font, color: rgb(0,0,0) });
+        y -= lineHeight;
+    }
+    
+    // Add extra spacing after paragraph
+    y -= (lineHeight * 0.5);
+  }
+
+  return doc.save();
+};
