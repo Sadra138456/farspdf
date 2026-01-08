@@ -9,6 +9,7 @@ export enum ToolType {
   PDF_TO_IMAGES = 'PDF_TO_IMAGES',
   COMPRESS = 'COMPRESS',
   PAGE_NUMBERS = 'PAGE_NUMBERS',
+  TEXT_TO_PDF = 'TEXT_TO_PDF',
 }
 
 export interface PdfFile {
