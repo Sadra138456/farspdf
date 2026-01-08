@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FileText, Layers, Scissors, FileOutput, X, RotateCw, Trash2, Home, Stamp,
-  Image as ImageIcon, Images, FileDigit, Shield, Minimize2, Timer, Globe, Fingerprint, Lock
+  Image as ImageIcon, Images, FileDigit, Shield, Minimize2, Timer, Globe, Fingerprint, Lock,
+  Type
 } from 'lucide-react';
 
 import { ToolType, PdfFile, ProcessingStatus } from './types';
@@ -42,6 +43,7 @@ function App() {
   const [splitPages, setSplitPages] = useState<string>('');
   const [extractPageNumber, setExtractPageNumber] = useState<string>('');
   const [watermarkText, setWatermarkText] = useState<string>('');
+  const [textInput, setTextInput] = useState<string>('');
   
   // Privacy Session Logic
   useEffect(() => {
@@ -107,6 +109,16 @@ function App() {
     
     if (activeTool === ToolType.MERGE || activeTool === ToolType.IMAGES_TO_PDF) {
       setSelectedFiles(prev => [...prev, ...newFiles]);
+    } else if (activeTool === ToolType.TEXT_TO_PDF) {
+       // Read text file content
+       const file = newFiles[0].file;
+       const reader = new FileReader();
+       reader.onload = (e) => {
+          if (e.target?.result) {
+             setTextInput(e.target.result as string);
+          }
+       };
+       reader.readAsText(file);
     } else {
       setSelectedFiles(newFiles.slice(0, 1));
     }
@@ -124,6 +136,7 @@ function App() {
     setSplitPages('');
     setExtractPageNumber('');
     setWatermarkText('');
+    setTextInput('');
   };
 
   const getFileName = () => {
@@ -258,6 +271,11 @@ function App() {
            if (selectedFiles.length === 0) throw new Error("فایل انتخاب نشده");
            result = await pdfService.addPageNumbers(selectedFiles[0].file);
            break;
+
+        case ToolType.TEXT_TO_PDF:
+           if (!textInput.trim()) throw new Error("متنی برای تبدیل وارد نشده است");
+           result = await pdfService.textToPdf(textInput);
+           break;
       }
       
       setResultPdf(result);
@@ -389,6 +407,7 @@ function App() {
           { id: ToolType.MERGE, icon: Layers, title: 'ترکیب PDF', desc: 'چند فایل رو به هم بچسبون' },
           { id: ToolType.SPLIT, icon: Scissors, title: 'جدا کردن', desc: 'صفحات دلخواه رو جدا کن' },
           { id: ToolType.IMAGES_TO_PDF, icon: Images, title: 'تصویر به PDF', desc: 'تبدیل عکس‌ها به یک فایل PDF' },
+          { id: ToolType.TEXT_TO_PDF, icon: Type, title: 'متن به PDF', desc: 'تبدیل متن ساده به PDF' },
           { id: ToolType.PDF_TO_IMAGES, icon: ImageIcon, title: 'PDF به تصویر', desc: 'تبدیل صفحات PDF به عکس' },
           { id: ToolType.COMPRESS, icon: Minimize2, title: 'کاهش حجم', desc: 'بهینه‌سازی فایل PDF' },
           { id: ToolType.PAGE_NUMBERS, icon: FileDigit, title: 'شماره صفحه', desc: 'افزودن شماره به صفحات' },
@@ -443,6 +462,7 @@ function App() {
                {activeTool === ToolType.PDF_TO_IMAGES && 'تبدیل PDF به تصویر'}
                {activeTool === ToolType.COMPRESS && 'کاهش حجم PDF'}
                {activeTool === ToolType.PAGE_NUMBERS && 'افزودن شماره صفحه'}
+               {activeTool === ToolType.TEXT_TO_PDF && 'تبدیل متن به PDF'}
             </h2>
             {privacyActive && (
                 <span className="bg-gray-900 text-green-400 border border-green-500 px-3 py-1 rounded-full text-xs font-mono flex items-center animate-pulse">
@@ -456,17 +476,43 @@ function App() {
             {/* Step 1: Upload (if no result yet) */}
             {!status.success && (
               <>
-                <div className="mb-8">
-                  <FileInput 
-                    onFilesSelected={handleFilesSelected} 
-                    multiple={activeTool === ToolType.MERGE || activeTool === ToolType.IMAGES_TO_PDF}
-                    accept={activeTool === ToolType.IMAGES_TO_PDF ? "image/png, image/jpeg" : "application/pdf"}
-                    className={selectedFiles.length > 0 ? "border-blue-300 bg-blue-50" : ""}
-                  />
-                </div>
+                {/* Special Case for Text to PDF: Show Textarea and File Input */}
+                {activeTool === ToolType.TEXT_TO_PDF ? (
+                   <div className="mb-8">
+                      <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">متن خود را تایپ کنید یا فایل متنی (.txt) آپلود کنید</label>
+                        <textarea 
+                           value={textInput}
+                           onChange={(e) => setTextInput(e.target.value)}
+                           placeholder="متن خود را اینجا بنویسید... (پشتیبانی خودکار از فارسی و انگلیسی)"
+                           className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm leading-relaxed text-gray-900"
+                           dir="auto"
+                        />
+                      </div>
+                      
+                      <div className="flex items-center gap-4">
+                          <FileInput 
+                            onFilesSelected={handleFilesSelected} 
+                            multiple={false}
+                            accept=".txt"
+                            className="flex-1 py-4"
+                          />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">نکته: پاراگراف‌های فارسی به طور خودکار راست‌چین و انگلیسی‌ها چپ‌چین خواهند شد.</p>
+                   </div>
+                ) : (
+                    <div className="mb-8">
+                      <FileInput 
+                        onFilesSelected={handleFilesSelected} 
+                        multiple={activeTool === ToolType.MERGE || activeTool === ToolType.IMAGES_TO_PDF}
+                        accept={activeTool === ToolType.IMAGES_TO_PDF ? "image/png, image/jpeg" : "application/pdf"}
+                        className={selectedFiles.length > 0 ? "border-blue-300 bg-blue-50" : ""}
+                      />
+                    </div>
+                )}
 
-                {/* File List */}
-                {selectedFiles.length > 0 && (
+                {/* File List (For non-text tools) */}
+                {activeTool !== ToolType.TEXT_TO_PDF && selectedFiles.length > 0 && (
                   <div className="mb-8 space-y-3">
                     <h4 className="font-semibold text-gray-700 mb-2">فایل‌های انتخاب شده:</h4>
                     {selectedFiles.map((f, idx) => (
@@ -489,7 +535,7 @@ function App() {
                 )}
 
                 {/* Tool Specific Controls */}
-                {selectedFiles.length > 0 && (
+                {(selectedFiles.length > 0 || activeTool === ToolType.TEXT_TO_PDF) && (
                    <div className="mb-8 p-6 bg-gray-50 rounded-xl border border-gray-200">
                       {activeTool === ToolType.SPLIT && (
                          <div>
@@ -572,11 +618,17 @@ function App() {
                               <p>شماره صفحه در پایین وسط تمام صفحات درج می‌شود.</p>
                           </div>
                       )}
+
+                      {activeTool === ToolType.TEXT_TO_PDF && (
+                          <div className="text-center text-gray-600">
+                              <p>فایل PDF با فونت استاندارد فارسی (وزیرمتن) ایجاد خواهد شد.</p>
+                          </div>
+                      )}
                    </div>
                 )}
 
                 {/* Action Button */}
-                {selectedFiles.length > 0 && (
+                {(selectedFiles.length > 0 || (activeTool === ToolType.TEXT_TO_PDF && textInput.trim().length > 0)) && (
                    <div className="flex justify-end">
                       <Button onClick={processFile} isLoading={status.isProcessing} className="w-full sm:w-auto">
                          {activeTool === ToolType.MERGE && 'ترکیب فایل‌های PDF'}
@@ -588,6 +640,7 @@ function App() {
                          {activeTool === ToolType.PDF_TO_IMAGES && 'تبدیل به تصاویر'}
                          {activeTool === ToolType.COMPRESS && 'کاهش حجم'}
                          {activeTool === ToolType.PAGE_NUMBERS && 'افزودن شماره'}
+                         {activeTool === ToolType.TEXT_TO_PDF && 'تبدیل به PDF'}
                       </Button>
                    </div>
                 )}
